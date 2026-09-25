@@ -1,0 +1,34 @@
+# rios-profile-api — the VA-facing profile read + acknowledgment + telemetry
+# endpoints, and NOTHING else (see README for the four functions).
+#
+# This site exists for one reason: the admin dashboard's Netlify site sits
+# behind a site-level password that also covers /.netlify/functions/*, so a
+# VA's browser cannot reach va-profile-read there. Netlify has no way to
+# exempt one path from that password, so the function moves instead of the
+# password coming off.
+#
+# THE PUBLISH DIRECTORY IS EMPTY, ON PURPOSE. It is created at build time and
+# nothing is ever committed into it. That is the guarantee that matters here:
+# with no static assets, this host cannot serve signal-config.json — or any
+# other file — even by accident. Every path except the four functions 404s.
+#
+# DO NOT add a publish directory with content. DO NOT point `publish` at the
+# repo root. If this site ever starts serving static files, it is serving
+# somebody's personal data.
+
+[build]
+  command = "mkdir -p public"
+  publish = "public"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Belt and braces: the function's own CORS + token check is the real door, but
+# no other path on this host should look like an API.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"

@@ -1,0 +1,4 @@
+node_modules/
+# The publish directory is created at build time and must stay empty. If you
+# ever find files in here, something is wrong — see netlify.toml.
+public/
