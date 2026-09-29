@@ -73,6 +73,25 @@ test("ack-accept logs only the current version+sha for the token's va_key; stale
   assert.equal(res.statusCode, 400);
 });
 
+test("ack-accept for a CLIENT token records audience=client + subject_key=client_id against the CLIENT document (the portal's consent write)", async () => {
+  const CLIENT_SECRET = "client-sso-test-secret";
+  const h = load("ack-accept", { CLIENT_SSO_SECRET: CLIENT_SECRET });
+  const ctok = jwt.sign({ client_id: "c-1", va_keys: ["Valentina Reyes"], iat: nowSec(), exp: nowSec() + 90, aud: "rios-profile", iss: "rios-client", jti: "c1" }, CLIENT_SECRET);
+  const ccur = docs.current("client");
+  let posted = null;
+  const deps = dbWith([], (_u, o) => { posted = JSON.parse(o.body); return resp(201, [{ ...posted, accepted_at: "2026-09-24T01:00:00Z" }]); });
+  let res = await h(post(ctok, { doc_version: ccur.version, doc_sha256: ccur.sha256 }), null, deps);
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(posted.audience, "client");
+  assert.equal(posted.subject_key, "c-1");        // the client id from the token, never a va_key
+  assert.equal(posted.doc_sha256, ccur.sha256);
+  // The VA document's sha is NOT the client's current document => stale, not a silent cross-audience write.
+  posted = null;
+  res = await h(post(ctok, { doc_version: cur.version, doc_sha256: cur.sha256 }), null, deps);
+  assert.equal(res.statusCode, 409);
+  assert.equal(posted, null);
+});
+
 test("events-ingest: 403 ack_required and NOTHING recorded before acknowledgment; records after; body cannot set identity", async () => {
   const h = load("events-ingest");
   let inserted = [];

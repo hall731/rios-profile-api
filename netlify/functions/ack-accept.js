@@ -1,7 +1,7 @@
 /**
- * ack-accept.js — log this VA's acceptance of the CURRENT privacy document.
+ * ack-accept.js — log this VA's or client's acceptance of the CURRENT privacy document.
  * ---------------------------------------------------------------------------
- * POST  Authorization: Bearer <profile SSO token>   { doc_version, doc_sha256 }
+ * POST  Authorization: Bearer <profile SSO token | client identity token>   { doc_version, doc_sha256 }
  *   -> 200 { ok:true, acknowledged:true, accepted_at }
  *   -> 409 { ok:false, error:"stale" } when version/sha are not the current doc
  *      (the gate re-fetches ack-status and shows the new text)
@@ -25,7 +25,12 @@ exports.handler = async (event, _ctx, deps = {}) => {
   if (!doc_version || !/^[0-9a-f]{64}$/.test(doc_sha256))
     return json(400, { ok: false, error: "doc_version and doc_sha256 are required." }, o.origin, FN);
   try {
-    const row = await ack.record({ audience: "va", subject_key: o.va_key, doc_version, doc_sha256 }, deps.dbOpts || {});
+    // Identity from the verified token: audience + subject_key are what openRequest
+    // derived (va -> va_key, client -> client_id). Stage 3 hard-coded "va" here;
+    // Stage 4 made ack-status audience-aware but not this writer, so a client's
+    // acceptance arrived with subject_key undefined and was compared against the
+    // VA document. Both copies (dashboard + profile-api) must stay identical.
+    const row = await ack.record({ audience: o.audience, subject_key: o.subject_key, doc_version, doc_sha256 }, deps.dbOpts || {});
     return json(200, { ok: true, acknowledged: true, accepted_at: (row && row.accepted_at) || new Date().toISOString() }, o.origin, FN);
   } catch (e) {
     if (e && e.status === 409) return json(409, { ok: false, error: "stale" }, o.origin, FN);
