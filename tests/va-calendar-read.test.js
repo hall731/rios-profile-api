@@ -29,3 +29,14 @@ test("VA sees own year: used/remaining, entries WITHOUT the admin note, holidays
   assert.match(urls.find((u) => u.includes("/va_time_off")), /va_key=eq\.Ana%20N/);
   assert.equal((await h(post(client(), {}), null, deps)).statusCode, 403);
 });
+
+test("a VA who started on/after July 1 sees 3 days for that year (and when they become usable)", async () => {
+  const h = load();
+  const deps = { dbOpts: { url: "https://db.example.co", key: "svc", fetchImpl: async (url) => {
+    if (url.includes("/va_time_off")) return resp(200, []);
+    if (url.includes("/profiles")) return resp(200, [{ va_key: "Ana Núñez", start_date: "2026-08-04" }]);
+    return resp(200, []);
+  } } };
+  const b = JSON.parse((await h(post(va(), { year: 2026 }), null, deps)).body);
+  assert.equal(b.allowance, 3); assert.equal(b.remaining, 3); assert.equal(b.eligible_from, "2026-11-02");
+});
