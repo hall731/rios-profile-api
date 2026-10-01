@@ -2,7 +2,7 @@
  * va-calendar-read.js — the VA's own calendar, read-only (Stage 5). profile-api.
  * ---------------------------------------------------------------------------
  * POST  Authorization: Bearer <gate-minted profile token>   { year? }
- *   -> 200 { ok, year, allowance, used, remaining,
+ *   -> 200 { ok, year, allowance, eligible_from, used, remaining,
  *            timeOff:[{ start_day, end_day, kind, counted }],
  *            holidays:[{ day, name, region }] }
  *   -> 403 for a CLIENT token (clients see no calendar in V1)
@@ -23,13 +23,15 @@ exports.handler = async (event, _ctx, deps = {}) => {
   if (o.audience !== "va") return json(403, { ok: false, error: "Not available." }, o.origin, FN);
   const year = Number(o.body.year) || new Date().getUTCFullYear();
   try {
-    const [entries, holidays] = await Promise.all([
+    const [entries, holidays, starts] = await Promise.all([
       cal.listTimeOff({ va_key: o.va_key, year }, deps.dbOpts || {}),
       cal.listHolidays({ from: `${year}-01-01`, to: `${year + 1}-12-31` }, deps.dbOpts || {}),
+      cal.startDates([o.va_key], deps.dbOpts || {}).catch((e) => { console.error(`${FN}: start-date read failed, showing the standard allowance — ${e.message}`); return {}; }),
     ]);
-    const s = cal.summarizeYear(entries, holidays, { year });
+    // Their own allowance: 3 in the first year if they started on/after July 1, else 6.
+    const s = cal.summarizeYear(entries, holidays, { year, startDay: starts[o.va_key] || null });
     return json(200, {
-      ok: true, year: s.year, allowance: s.allowance, used: s.used, remaining: s.remaining,
+      ok: true, year: s.year, allowance: s.allowance, eligible_from: s.eligible_from, used: s.used, remaining: s.remaining,
       timeOff: s.entries.map((e) => ({ start_day: e.start_day, end_day: e.end_day, kind: e.kind, counted: e.counted })),   // explicit: no note, no id
       holidays: holidays.map((h) => ({ day: h.day, name: h.name, region: h.region })),
     }, o.origin, FN);

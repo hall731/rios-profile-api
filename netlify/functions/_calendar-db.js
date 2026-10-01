@@ -7,7 +7,10 @@
  * implementation, so the two surfaces can never disagree about "days used".
  *
  * DECIDED constants (2026-09-24): 6 vacation days per calendar year, company
- * wide, no carryover. Counted days = Mon–Fri inside the entry ∩ the calendar
+ * wide, no carryover. (2026-10-01, Cody) A VA who STARTS on or after July 1
+ * gets 3 days for that first calendar year, and no vacation is usable until
+ * 90 days after their start date. Start date comes from profiles.start_date;
+ * no start date on file = the standard 6, no 90-day check. Counted days = Mon–Fri inside the entry ∩ the calendar
  * year, minus shared holidays whose region is ALL or the VA's region.
  * Only kind='vacation' counts. Tombstoned rows never count.
  *
@@ -15,6 +18,9 @@
  */
 
 const VACATION_DAYS_PER_YEAR = 6;
+const FIRST_YEAR_LATE_START_DAYS = 3;     // started on/after July 1
+const LATE_START_FROM_MMDD = "07-01";
+const ELIGIBLE_AFTER_DAYS = 90;           // first usable day = start + 90 days
 const HOLIDAYS_SUBTRACT = true;
 const REGIONS = ["MX", "US", "ALL"];
 const KINDS = ["vacation", "sick", "other"];
@@ -71,23 +77,49 @@ function countedDays(entry, holidays = [], { year, region = "MX" } = {}) {
   return n;
 }
 
+/** allowanceFor(startDay, year) -> 6 | 3 | 0 (not started yet that year). */
+function allowanceFor(startDay, year) {
+  if (!DATE_RE.test(String(startDay || ""))) return VACATION_DAYS_PER_YEAR;
+  const sy = Number(startDay.slice(0, 4));
+  if (sy > year) return 0;
+  if (sy === year && startDay.slice(5) >= LATE_START_FROM_MMDD) return FIRST_YEAR_LATE_START_DAYS;
+  return VACATION_DAYS_PER_YEAR;
+}
+/** eligibleFrom(startDay) -> first day vacation may be taken (YYYY-MM-DD) | null. */
+function eligibleFrom(startDay) {
+  if (!DATE_RE.test(String(startDay || ""))) return null;
+  return fromUtc(toUtc(startDay) + ELIGIBLE_AFTER_DAYS * 86400000);
+}
+
 /**
- * summarizeYear(entries, holidays, { year, region }) ->
- *   { year, allowance, used, remaining, entries:[{...entry, counted}] }
+ * summarizeYear(entries, holidays, { year, region, startDay }) ->
+ *   { year, allowance, eligible_from, used, remaining, entries:[{...entry, counted, before_eligible}] }
  * PURE. Only live vacation entries count. remaining never goes below 0 (an
  * admin may record more than the allowance; the counter says so plainly).
  */
-function summarizeYear(entries, holidays, { year, region = "MX" } = {}) {
+function summarizeYear(entries, holidays, { year, region = "MX", startDay = null } = {}) {
   const y = year || new Date().getUTCFullYear();
+  const allowance = allowanceFor(startDay, y);
+  const eligible = eligibleFrom(startDay);
   let used = 0;
   const out = [];
   for (const e of entries || []) {
     if (!e || e.deleted_at) continue;
     const counted = e.kind === "vacation" ? countedDays(e, holidays, { year: y, region }) : 0;
     if (e.kind === "vacation") used += counted;
-    out.push({ ...e, counted });
+    out.push({ ...e, counted, before_eligible: !!(eligible && e.kind === "vacation" && e.start_day < eligible) });
   }
-  return { year: y, allowance: VACATION_DAYS_PER_YEAR, used, remaining: Math.max(0, VACATION_DAYS_PER_YEAR - used), entries: out };
+  return { year: y, allowance, eligible_from: eligible, used, remaining: Math.max(0, allowance - used), entries: out };
+}
+
+/** startDates(vaKeys?) -> { va_key: "YYYY-MM-DD" | null }. One read of profiles. */
+async function startDates(vaKeys = null, opts = {}) {
+  let q = "/profiles?select=va_key,start_date";
+  if (Array.isArray(vaKeys) && vaKeys.length === 1) q += `&va_key=eq.${encodeURIComponent(vaKeys[0])}`;
+  const rows = await rest(q, {}, opts);
+  const map = {};
+  for (const r of Array.isArray(rows) ? rows : []) if (r && r.va_key) map[r.va_key] = r.start_date || null;
+  return map;
 }
 
 /* ---------- holidays ---------- */
@@ -125,7 +157,7 @@ async function removeTimeOff(id, by, opts = {}) {
 }
 
 module.exports = {
-  VACATION_DAYS_PER_YEAR, HOLIDAYS_SUBTRACT, REGIONS, KINDS, DATE_RE,
-  config, rest, countedDays, summarizeYear,
+  VACATION_DAYS_PER_YEAR, FIRST_YEAR_LATE_START_DAYS, ELIGIBLE_AFTER_DAYS, HOLIDAYS_SUBTRACT, REGIONS, KINDS, DATE_RE,
+  config, rest, countedDays, summarizeYear, allowanceFor, eligibleFrom, startDates,
   listHolidays, addHoliday, removeHoliday, listTimeOff, addTimeOff, removeTimeOff,
 };
