@@ -69,5 +69,5 @@ test("ack-status accepts a client identity token and keys the record by audience
   const res = await h(post(identTok(), {}), null, { dbOpts: { url: "https://db.example.co", key: "svc", fetchImpl: async (u) => { url = u; return resp(200, []); } } });
   assert.equal(res.statusCode, 200);
   assert.match(url, /audience=eq\.client/); assert.match(url, /subject_key=eq\.c-1/);
-  assert.match(JSON.parse(res.body).doc.text, /Chat is not private between you and your VA/);
+  assert.match(JSON.parse(res.body).doc.text, /Messages sent through RIOS are stored and may be viewed by authorized Tele-Help-Ing team members/); assert.equal(JSON.parse(res.body).doc.version, "2026-10-02-draft");
 });
