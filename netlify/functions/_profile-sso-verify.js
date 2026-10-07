@@ -29,7 +29,7 @@
  * Returns (never throws):
  *   { ok: true,  va_key }
  *   { ok: false, reason }   "no_secret" | "signature" | "claims" | "expired" |
- *                           "aud" | "iss"
+ *                           "aud" | "iss" | "purpose"
  * Every { ok:false } EXCEPT "no_secret" is a generic 401 to the caller.
  * "no_secret" is a server misconfiguration the caller turns into a 500 — a
  * missing signing secret NEVER degrades into accepting unsigned tokens.
@@ -55,6 +55,7 @@ function verifyProfileToken({
   nowSec = Math.floor(Date.now() / 1000),
   skewSec = DEFAULT_SKEW_SEC,
   log = console,
+  expectedPurpose = null,
 } = {}) {
   const skew = Math.min(Math.max(0, skewSec), DEFAULT_SKEW_SEC);
 
@@ -110,6 +111,17 @@ function verifyProfileToken({
   if (p.iss !== EXPECTED_ISS) {
     log.warn(`PROFILE_SSO_VERIFY_FAIL step=iss got=${String(p.iss)} want=${EXPECTED_ISS}`);
     return { ok: false, reason: "iss" };
+  }
+
+  // 4b. Purpose (docs/stories/va-secure-login.md). A token minted for the
+  //     server-to-server credential check carries purpose:"credentials". It
+  //     must NEVER open a profile, and a plain profile token must NEVER check a
+  //     password: an endpoint that expects no purpose rejects any token carrying
+  //     one, and an endpoint that expects one rejects any token without it.
+  const purpose = p.purpose === undefined || p.purpose === null || p.purpose === "" ? null : String(p.purpose);
+  if (purpose !== (expectedPurpose || null)) {
+    log.warn(`PROFILE_SSO_VERIFY_FAIL step=purpose got=${String(purpose)} want=${String(expectedPurpose || null)}`);
+    return { ok: false, reason: "purpose" };
   }
 
   // 5. Authenticated. The va_key comes ONLY from the verified claim — never

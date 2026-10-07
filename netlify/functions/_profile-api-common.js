@@ -95,11 +95,16 @@ function openRequest(event, fnName, deps = {}) {
     return { origin, early: json(500, { ok: false, error: "Server misconfiguration." }, origin, fnName) };
   }
   let ident = null;
+  // expectedPurpose (va-credential-check only): the token must carry
+  // purpose:"credentials"; everywhere else a token carrying any purpose is
+  // refused by the verifier. A purpose-scoped request never falls through to
+  // the client verifier.
+  const expectedPurpose = deps.expectedPurpose || null;
   if (vaSecret) {
-    const v = verifyProfileToken({ token, secret: vaSecret, log: clientSecret ? quiet : deps.log });
+    const v = verifyProfileToken({ token, secret: vaSecret, log: clientSecret ? quiet : deps.log, expectedPurpose });
     if (v.ok) ident = { audience: "va", subject_key: v.va_key, va_key: v.va_key, va_keys: [v.va_key] };
   }
-  if (!ident && clientSecret) {
+  if (!ident && clientSecret && !expectedPurpose) {
     const c = verifyClientToken({ token, secret: clientSecret, log: deps.log });
     if (c.ok && c.client_id) ident = { audience: "client", subject_key: c.client_id, client_id: c.client_id, va_keys: c.va_keys };
   }
