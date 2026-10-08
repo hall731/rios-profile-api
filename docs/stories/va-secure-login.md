@@ -306,3 +306,87 @@ publish, observations, roster flips, passcodes) are unchanged.
   prompts (Settings publish and the other writes) are a separate decision.
 - The chat session cookie is `SameSite=None; Partitioned` for the frame; nothing
   here changed that.
+
+---
+
+# Decision: a credential is the only way in. The name + email door is gone.
+
+Cody's decision, built on the same `claude/va-secure-login` branch (gate eb402be,
+dashboard c9a62db, rios-chat a386d69, profile-api 4fb5311). HELD.
+
+## What changed
+
+1. **Gate login.** A VA must present a valid password, or a valid (unused,
+   unexpired) access code. Name + email still IDENTIFY the VA (the unchanged
+   `matchVA` fold) but are never sufficient. The "no credentials row => sign in
+   by name" grace path is removed, and so is the `VA_PASSWORD_REQUIRED` switch:
+   there is no configuration that can reopen a name-only path (tested: the
+   string is absent from every gate function, and no "legacy" session is ever
+   minted). A blank secret is refused by the gate before profile-api is asked,
+   so it never burns a try. The one generic message now carries the guidance
+   for everyone: "… check your first name, last name, email, and your password
+   or access code … Just starting? Ask your admin for an access code to get
+   started …". It is the SAME text for a wrong name, a wrong password, a used or
+   expired code, a locked row, and a VA with no credentials at all, so nothing
+   is enumerated. The login form's secret field is required, and its help text
+   says the same in plain words. "Access code" is the VA-facing name for the
+   temporary passcode.
+2. **rios-chat fallback door removed.** `netlify/functions/va-login.js` and its
+   trio matcher `_va-login.js` are deleted (and the matcher's test). `_pages.js`
+   no longer has a login form at all: a top-level visit with no usable session
+   (no token, a rejected or replayed token, a store outage) gets a page that
+   says to sign in through RIOS home, with no form and no fields. Inside the
+   gate's frame the behaviour from the single-sign-on follow-on stands: the
+   landing asks the gate for a fresh token. Chat is reachable only through the
+   signed, scoped, single-use handoff from a gate session, or an existing chat
+   session the handoff established. `sso-in` verification is unchanged.
+3. **Kept as built:** silent gate→chat SSO, admin single login into chat,
+   `GATE_SESSION_SECRET`, scrypt hashing, access code → set password → password,
+   admin issue/reset, 10 tries / 15 minutes lockout, token scopes and audience
+   separation.
+4. **Dashboard wording.** The Settings row's no-credential state now reads "No
+   access code yet. They cannot sign in until you generate one — there is no
+   name-and-email sign-in."
+
+Client logins (`rios-client`, `rios-chat` `client-login`) were not part of this
+decision and are untouched.
+
+## Onboarding order (every VA, no exceptions)
+
+1. Admin adds the VA in Settings (name, and the VA login name + email they will
+   type) and publishes.
+2. Admin opens the row's "Login password" line and clicks **Generate passcode**.
+   The code is shown once.
+3. Admin copies "First Last · email · code" into the welcome email.
+4. The VA signs in on their RIOS home with name, email and the code (within 7
+   days; the code is single-use).
+5. The VA chooses their own password and is signed in. From then on: name,
+   email and password. Chat opens from Home with no further sign-in.
+6. Forgotten password or lockout: admin clicks **Reset login**, which issues a
+   new code and clears the old password; back to step 3.
+
+## VAs who sign in by name + email today (will be refused until issued a code)
+
+Read from `signal-config.json` on this branch: three VAs carry a complete VA
+login trio and therefore can sign in by name + email on the current production
+gate. After this deploys, each is refused until an admin issues them an access
+code (step 2 above). Issue the codes BEFORE deploying the gate, or right after
+and tell them:
+
+- Andrea Gonzalez
+- Carla Pena
+- Derek Sanabia Sandoval
+
+Whether any of them already has a `va_credentials` row cannot be checked from
+this session (no Supabase access); the password-era branch has not been
+deployed, so none should. Nobody else can sign in today: a VA without a login
+trio has never been able to.
+
+## Review before it goes live (additions)
+
+- Issue access codes to the three VAs above around the gate deploy.
+- Deploy order is unchanged (migration by hand → profile-api → gate; set
+  `GATE_SESSION_SECRET` on the gate first). rios-chat can deploy any time; once
+  it does, the standalone chat sign-in is gone for everyone, which is intended.
+- The 7-day code expiry and the single-use rule mean a welcome email that sits
+  unread for a week needs a new code (Reset login or Generate a new passcode).
