@@ -190,3 +190,119 @@ dashboard and canonicalised the same way before verification by profile-api.
 - Timing: a wrong password costs one scrypt round; "no credentials under
   enforcement" and "locked" answer without one. Bodies are identical; timing is
   not claimed to be.
+
+---
+
+# Follow-on: one login — a dedicated session secret, and single sign-on into chat
+
+Same branch `claude/va-secure-login`, stacked on the password work (gate fcccda0,
+dashboard 5fe5e3a). `rios-chat` joins on a branch of the same name off its main.
+HELD: nothing merged, nothing deployed, no migration applied.
+
+## 1. `GATE_SESSION_SECRET` (gate)
+
+The password build signed the gate session with `PROFILE_SSO_SECRET` under a
+different audience. It is now signed and verified ONLY with a dedicated env var,
+`GATE_SESSION_SECRET`, on the gate site:
+
+- `va-login` / `va-set-password` mint with it; `mint-chat-token`,
+  `mint-profile-token`, `chat-unread`, `home-widgets`, `submit-survey` verify
+  with it.
+- Unset => a loud 500 naming `GATE_SESSION_SECRET`, on the login AND on every
+  endpoint. There is deliberately NO fallback to `PROFILE_SSO_SECRET`; a session
+  signed with the profile secret is refused everywhere (tested).
+- Why: a leaked profile secret must not mint sessions, and a leaked session
+  secret must not read profiles or forge credential-check tokens.
+- Env audit: added to the gate spec's cutover checklist
+  (`specs/va-survey-gate.md`) with every other gate variable. Secret value lives
+  in Netlify only; never in code. The deploy list below carries it.
+
+## 2. Single sign-on into chat — VA side (gate + rios-chat)
+
+What already existed: the gate never asked a VA to sign into chat. It mints a
+≤90 s single-use chat token from the login in memory (`CHAT_SSO_SECRET`,
+`aud:"rios-chat"`), loads the frame at `sso-in?token=`, and when the chat page
+loses its session it posts `rios-chat:reauth` and the gate mints again,
+silently. The password work already made that mint require the gate session.
+
+What still showed a second form: `rios-chat/sso-in.js`. With NO token in a frame
+it already served the landing (which asks the gate to re-auth). But with a token
+that FAILED to verify — a frame reload re-navigating to an already-burned token,
+a jti-store outage — it rendered the standalone login form inside the frame.
+That was the second sign-in.
+
+Change (rios-chat `sso-in.js`): on any verification failure, if the browser says
+this is a frame (`Sec-Fetch-Dest: iframe`, set by the browser, never by a page),
+serve the landing page, which asks the gate for a fresh handoff; top-level, the
+standalone form as before. The gate answers only when it holds a gate session
+(`handleChatReauth` and `loadChat` refuse without one), so:
+
+- valid gate session => chat opens, no credential re-entry, ever;
+- no valid gate session => the gate never mints, the frame shows "chat
+  unavailable", and chat never gets a session. Chat auth is not removed, not
+  loosened: `sso-in` still verifies signature, expiry, audience, issuer and
+  single-use jti, and still establishes its own session.
+
+Scopes untouched: the chat token is signed with `CHAT_SSO_SECRET` and opens chat
+only; the profile token with `PROFILE_SSO_SECRET` opens profile reads only; the
+credential token carries `purpose:"credentials"`; the gate session has
+`aud:"rios-gate"` and opens nothing outside the gate. No token was widened.
+
+**The rios-chat fallback door** (`rios-chat/netlify/functions/va-login.js`)
+still accepts the bare first + last + email trio with no password. The framed
+chat never shows that form any more, so it is reachable only by a direct,
+top-level visit to the chat site, and it opens chat only (no profile, documents
+or payment details). It is a WEAKER PARALLEL DOOR. This change flags it (header
+comment + this list) and does not close it. Options for the review: close it
+(SSO only), or require a gate-minted token there too.
+
+## 3. Admin side (dashboard)
+
+The admin's "double login" into chat was not a chat login at all: after the
+Netlify site password and the admin sign-in (email + password, HttpOnly session
+cookie), the dashboard's chat pane, the clients inbox and the Lucía tab each
+prompted for the shared ADMIN passphrase before calling `chat-proxy`, which
+accepted only that passphrase.
+
+Change: `chat-proxy` now opens on EITHER a valid admin session OR the
+passphrase; neither => 401. The browser sends no passphrase when the sign-in
+block reports a session (`adminAuthHeaders`), and prompts only when there is no
+session (the old flow, unchanged for scripts and for an admin who never signed
+in). Outbound calls to rios-chat still always carry `ADMIN_KEY`. This was small
+and not risky: the admin session is per-person, password-based, HttpOnly and
+`SameSite=Lax`, so a cross-site page cannot ride it onto a JSON POST, and
+accepting it never admits anyone the passphrase would have refused. Outcome:
+one login, chat opens authenticated. Other passphrase-gated writes (Settings
+publish, observations, roster flips, passcodes) are unchanged.
+
+## Acceptance (follow-on)
+
+14. Gate: a session signed with `PROFILE_SSO_SECRET` is refused by every
+    endpoint; `GATE_SESSION_SECRET` unset => 500 naming it on `va-login` and on
+    `mint-profile-token`; `va-login`'s session verifies with the gate secret only.
+15. Gate browser: `loadChat` and `handleChatReauth` never mint without
+    `creds.session`; never prompt.
+16. rios-chat: a replayed token or a jti-store outage INSIDE a frame => the
+    re-auth landing (contains `rios-chat:reauth`), no form, no session; top-level
+    => the form.
+17. Dashboard: `chat-proxy` with a valid session and no key => works, outbound
+    call still carries `ADMIN_KEY`, `sender_identity` from the session; wrong-
+    secret or expired cookie and no key => 401; neither => 401. Every chat caller
+    in the page uses the session-first headers and prompts only without one.
+
+## Deploy additions
+
+- Set `GATE_SESSION_SECRET` on the gate site BEFORE deploying the gate: a gate
+  without it refuses every login (loud 500). Generate it fresh; never reuse
+  `PROFILE_SSO_SECRET` or `CHAT_SSO_SECRET`.
+- Deploy `rios-chat` any time; its change is self-contained.
+- Deploy the dashboard any time; the passphrase path still works meanwhile.
+
+## Review before it goes live (additions)
+
+- `GATE_SESSION_SECRET` set on the gate site (see above).
+- The rios-chat fallback trio door: close it, or gate it, or keep it and say so.
+- Admin: `chat-proxy` now honours the admin session. The remaining passphrase
+  prompts (Settings publish and the other writes) are a separate decision.
+- The chat session cookie is `SameSite=None; Partitioned` for the frame; nothing
+  here changed that.
