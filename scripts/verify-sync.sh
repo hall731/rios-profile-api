@@ -53,17 +53,22 @@ check netlify/functions/_events-db.js
 check netlify/functions/ack-status.js
 check netlify/functions/ack-accept.js
 check netlify/functions/events-ingest.js
+check netlify/functions/_scrypt.js
+check netlify/functions/_credentials-db.js
+check netlify/functions/va-credential-check.js
 check tests/va-profile-read.test.js
 check tests/profile-api-endpoints.test.js
 check tests/client-login.test.js
 check tests/va-calendar-read.test.js
 check tests/documents-portal.test.js
+check tests/va-credential-check.test.js
 check supabase/migrations/20260824170000_va_profiles.sql
 check supabase/migrations/20260924090000_events.sql
 check supabase/migrations/20260924100000_acknowledgments.sql
 check supabase/migrations/20260924110000_clients.sql
 check supabase/migrations/20260924120000_calendar.sql
 check supabase/migrations/20260924130000_documents.sql
+check supabase/migrations/20261007150000_va_credentials.sql
 
 if [ "$STATUS" -ne 0 ]; then
   echo
