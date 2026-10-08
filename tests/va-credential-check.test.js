@@ -40,6 +40,9 @@ function store(row) {
   return st;
 }
 const PASSCODE = "K7MX-4PQR-9WHT", PASSWORD = "sunny river tuesday";
+// The store hashes the CANONICAL passcode (upper-case, letters+digits only), as the dashboard issues it.
+const { canonPasscode } = require("../netlify/functions/_credentials-db");
+const hashPasscode = () => hashPassword(canonPasscode(PASSCODE));
 const future = () => new Date(Date.now() + 3 * 86400000).toISOString();
 const past = () => new Date(Date.now() - 3600000).toISOString();
 
@@ -61,9 +64,12 @@ test("login: no row -> state none (nothing written); valid unexpired passcode ->
   let st = store(null);
   let r = await h(post(cred(), { action: "login", secret: "anything" }), {}, st.deps);
   assert.equal(r.statusCode, 200); assert.deepEqual(JSON.parse(r.body), { ok: true, state: "none" }); assert.equal(st.patches.length, 0);
-  st = store({ va_key: "Maya Restrepo", password_hash: null, temp_passcode_hash: await hashPassword(PASSCODE), temp_expires_at: future(), must_reset: true, failed_attempts: 0, locked_until: null });
+  st = store({ va_key: "Maya Restrepo", password_hash: null, temp_passcode_hash: await hashPasscode(), temp_expires_at: future(), must_reset: true, failed_attempts: 0, locked_until: null });
   r = await h(post(cred(), { action: "login", secret: PASSCODE }), {}, st.deps);
   assert.deepEqual(JSON.parse(r.body), { ok: true, state: "passcode" }); assert.equal(st.patches.length, 0, "a passcode check consumes nothing");
+  r = await h(post(cred(), { action: "login", secret: " k7mx4pqr 9wht " }), {}, st.deps);
+  assert.deepEqual(JSON.parse(r.body), { ok: true, state: "passcode" }, "lower-case, no dashes, stray spaces: still the same passcode");
+  assert.equal(canonPasscode("k7mx-4pqr-9wht"), "K7MX4PQR9WHT");
   st = store({ va_key: "Maya Restrepo", password_hash: await hashPassword(PASSWORD), temp_passcode_hash: null, temp_expires_at: null, must_reset: false, failed_attempts: 2, locked_until: null });
   r = await h(post(cred(), { action: "login", secret: PASSWORD }), {}, st.deps);
   assert.deepEqual(JSON.parse(r.body), { ok: true, state: "password" });
@@ -76,7 +82,7 @@ test("login: wrong password, expired passcode, locked -> 401 { ok:false } and th
   let st = store({ va_key: "Maya Restrepo", password_hash: await hashPassword(PASSWORD), temp_passcode_hash: null, temp_expires_at: null, must_reset: false, failed_attempts: 0, locked_until: null });
   let r = await h(post(cred(), { action: "login", secret: "wrong password" }), {}, st.deps);
   assert.equal(r.statusCode, 401); assert.deepEqual(JSON.parse(r.body), { ok: false }); assert.equal(st.row.failed_attempts, 1); assert.equal(st.row.locked_until, null);
-  st = store({ va_key: "Maya Restrepo", password_hash: null, temp_passcode_hash: await hashPassword(PASSCODE), temp_expires_at: past(), must_reset: true, failed_attempts: 0, locked_until: null });
+  st = store({ va_key: "Maya Restrepo", password_hash: null, temp_passcode_hash: await hashPasscode(), temp_expires_at: past(), must_reset: true, failed_attempts: 0, locked_until: null });
   r = await h(post(cred(), { action: "login", secret: PASSCODE }), {}, st.deps);
   assert.equal(r.statusCode, 401, "expired passcode"); assert.equal(st.row.failed_attempts, 1);
   st = store({ va_key: "Maya Restrepo", password_hash: await hashPassword(PASSWORD), temp_passcode_hash: null, temp_expires_at: null, must_reset: false, failed_attempts: 0, locked_until: future() });
@@ -91,7 +97,7 @@ test("login: wrong password, expired passcode, locked -> 401 { ok:false } and th
 
 test("set_password: valid passcode + good password -> hash stored, passcode cleared in the same update, must_reset false, counters reset, event; bad passcode -> 401 nothing written; weak -> 400 nothing written", async () => {
   const h = load("va-credential-check");
-  const fresh = async () => store({ va_key: "Maya Restrepo", password_hash: null, temp_passcode_hash: await hashPassword(PASSCODE), temp_expires_at: future(), must_reset: true, failed_attempts: 3, locked_until: null });
+  const fresh = async () => store({ va_key: "Maya Restrepo", password_hash: null, temp_passcode_hash: await hashPasscode(), temp_expires_at: future(), must_reset: true, failed_attempts: 3, locked_until: null });
   let st = await fresh();
   let r = await h(post(cred(), { action: "set_password", passcode: PASSCODE, new_password: PASSWORD }), {}, st.deps);
   assert.equal(r.statusCode, 200, r.body); assert.deepEqual(JSON.parse(r.body), { ok: true });

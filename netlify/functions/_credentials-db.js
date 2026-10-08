@@ -26,6 +26,14 @@ const LOCK_MINUTES = 15;
 const PASSWORD_MIN = 10;
 const PASSWORD_MAX = 200;
 
+/** canonPasscode(s) — what gets hashed and what gets verified: upper-case,
+ *  letters and digits only. The issued form is XXXX-XXXX-XXXX from an alphabet
+ *  of upper-case letters and digits, so a VA who types it lower-case or without
+ *  the dashes still matches. The dashboard hashes the SAME canonical form. */
+function canonPasscode(s) {
+  return String(s == null ? "" : s).toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 async function getCredentials(vaKey, opts = {}) {
   const rows = await rest(`${TABLE}?select=*&va_key=eq.${encodeURIComponent(vaKey)}&limit=1`, {}, opts);
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
@@ -90,7 +98,7 @@ async function login({ vaKey, secret }, opts = {}, nowMs = Date.now()) {
     return noteFailure(row, opts, nowMs);
   }
   if (passcodeLive(row, nowMs)) {
-    if (await verifyPassword(typed, row.temp_passcode_hash)) return { ok: true, state: "passcode" };
+    if (await verifyPassword(canonPasscode(typed), row.temp_passcode_hash)) return { ok: true, state: "passcode" };
     return noteFailure(row, opts, nowMs);
   }
   // A row with nothing live (expired passcode, or reset in progress): fail closed.
@@ -100,7 +108,7 @@ async function login({ vaKey, secret }, opts = {}, nowMs = Date.now()) {
 function passwordProblem(newPassword, passcode) {
   if (typeof newPassword !== "string") return "weak";
   if (newPassword.length < PASSWORD_MIN || newPassword.length > PASSWORD_MAX) return "weak";
-  if (passcode && newPassword === passcode) return "weak";
+  if (passcode && canonPasscode(newPassword) === canonPasscode(passcode)) return "weak";
   return null;
 }
 
@@ -115,7 +123,7 @@ async function setPassword({ vaKey, passcode, newPassword }, opts = {}, nowMs = 
   if (!row) return { ok: false };
   if (isLocked(row, nowMs)) return { ok: false };
   const typed = typeof passcode === "string" ? passcode : "";
-  if (!typed || !passcodeLive(row, nowMs) || !(await verifyPassword(typed, row.temp_passcode_hash))) return noteFailure(row, opts, nowMs);
+  if (!typed || !passcodeLive(row, nowMs) || !(await verifyPassword(canonPasscode(typed), row.temp_passcode_hash))) return noteFailure(row, opts, nowMs);
   const problem = passwordProblem(newPassword, typed);
   if (problem) return { ok: false, reason: problem };
   const password_hash = await hashPassword(newPassword);
@@ -132,4 +140,4 @@ async function setPassword({ vaKey, passcode, newPassword }, opts = {}, nowMs = 
   return { ok: true };
 }
 
-module.exports = { login, setPassword, getCredentials, recordEvent, passwordProblem, MAX_FAILED, LOCK_MINUTES, PASSWORD_MIN, PASSWORD_MAX };
+module.exports = { login, setPassword, getCredentials, recordEvent, passwordProblem, canonPasscode, MAX_FAILED, LOCK_MINUTES, PASSWORD_MIN, PASSWORD_MAX };

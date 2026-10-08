@@ -1,12 +1,11 @@
 /**
  * _scrypt.js — SHARED helper (leading underscore: NOT a Netlify endpoint).
  * ---------------------------------------------------------------------------
- * BYTE-FOR-BYTE COPY of remote-insight-os/netlify/functions/_scrypt.js (the
- * repos cannot import each other). Here it hashes VA passwords and temporary
- * passcodes (va_credentials, docs/stories/va-secure-login.md). Keep the two in
- * lockstep: the stored format must verify on both sides.
- *
- * Password hashing with Node's built-in scrypt (node:crypto) — zero
+ * Password hashing with Node's built-in scrypt (node:crypto). Used for admin
+ * passwords (admins.password_hash, admin-login.js) and — as a byte-for-byte
+ * copy in rios-profile-api, kept in step by its verify-sync.sh — for VA
+ * passwords and temporary passcodes (va_credentials,
+ * docs/stories/va-secure-login.md). Zero
  * dependencies, not plaintext, not rolled-own crypto. Each password gets a
  * random 16-byte salt; the stored value is a self-describing string
  *

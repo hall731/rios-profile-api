@@ -145,6 +145,29 @@ dashboard:
     REVIEW BEFORE APPLYING, not referenced by any code path that runs it.
 13. All new tests fail against the previous code; all three suites green.
 
+## Where profile-api's files are authored
+
+`rios-profile-api/netlify/functions/*` are COPIES of `remote-insight-os/netlify/functions/*`
+(the source of truth; `rios-profile-api/scripts/verify-sync.sh` checks the
+drift before every deploy and the README says to copy the dashboard's version
+over). So the purpose check in `_profile-sso-verify.js` / `_profile-api-common.js`,
+and the new `_credentials-db.js`, `va-credential-check.js`, `_scrypt.js`, their
+test and the migration are authored in `remote-insight-os` (root
+`netlify/functions` and the in-repo mirror `profile-api/`) and copied byte-for-byte
+into `rios-profile-api`, which lists them in `verify-sync.sh`. The passcode is
+hashed in its canonical form (upper-case, letters and digits only) by the
+dashboard and canonicalised the same way before verification by profile-api.
+
+## Deploy order (a lockout hazard if ignored)
+
+1. Apply the migration (by hand, after review).
+2. Deploy `rios-profile-api` (the credential check must exist).
+3. Deploy `hall731-rios-gate`. The gate's `va-login` now fails CLOSED (500) if
+   profile-api cannot answer, and requires `PROFILE_API_ORIGIN` and
+   `PROFILE_SSO_SECRET` on the gate site (both already set for the profile read).
+4. Deploy `remote-insight-os` whenever; the Settings control only matters once
+   the table exists.
+
 ## Review before it goes live
 
 - Apply the migration by hand after review.
@@ -157,3 +180,13 @@ dashboard:
 - A dedicated `GATE_SESSION_SECRET` would separate the session from the profile
   SSO secret; this story reuses `PROFILE_SSO_SECRET` with a distinct audience to
   avoid a new secret.
+- A gate session is not revoked by an admin reset, a lockout, or flipping
+  `VA_PASSWORD_REQUIRED`: one minted before stays valid for the rest of its 12 h.
+  A reset is therefore not an immediate kick.
+- Lock stickiness: the failure counter clears only on a successful password
+  login, a password set, or an admin issue/reset. After a lock lapses, the next
+  wrong try re-locks. Anyone holding the trio can keep a VA locked for 15-minute
+  stretches; the admin's reset clears it.
+- Timing: a wrong password costs one scrypt round; "no credentials under
+  enforcement" and "locked" answer without one. Bodies are identical; timing is
+  not claimed to be.
