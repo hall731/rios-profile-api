@@ -40,6 +40,15 @@ Sick days and vacation look identical to the client. The response is built as
 an explicit literal at TWO layers (profile-api, then again in rios-client's
 function), the same defence-in-depth the portal uses for the read.
 
+**Holiday names** are admin free text, so rios-client's function runs each one
+through `client-auth.js`'s own `PRIVATE_MATTER` net (exported, unchanged; one
+list, never a copy). A match keeps the date and drops the name, `name:""`, and
+logs a warning that does not repeat the text. The page then reads just the
+date: "Maya is off Nov 25". The net is a keyword backstop: it can withhold an
+ordinary name ("Family Day") and cannot catch every private one, so admins
+should name holidays as holidays. profile-api passes names through as dates +
+names; the keyword check lives at the client layer only.
+
 ## Data
 
 - **Holidays source:** the existing `public.holidays` table (migration
@@ -79,7 +88,10 @@ rebuilds the same literal, 401 without a session, 503 when profile-api fails.
 3. Only live rows; only rows overlapping today..today+90; holidays limited to
    ALL/MX in the same window.
 4. Home renders the dated list soonest first, holidays merged across VAs,
-   absolute dates, en + es; empty and failure lines; hidden on legacy.
+   absolute dates, en + es; empty and failure lines; hidden on legacy (the
+   read runs only when the sign-in came through the session door).
+4a. A holiday name that matches `PRIVATE_MATTER` never reaches the client;
+   its date still shows, without brackets.
 5. Tests written first and failing; every suite green.
 
 ## Not in this story
