@@ -147,6 +147,21 @@ async function listTimeOff({ va_key, year } = {}, opts = {}) {
   const rows = await rest(q, {}, opts);
   return Array.isArray(rows) ? rows : [];
 }
+/**
+ * listTimeOffRange({ va_key, from, to }) -> [{ va_key, start_day, end_day, deleted_at }]
+ * Live rows for ONE VA overlapping [from, to] (YYYY-MM-DD, inclusive). For the
+ * client-facing availability read: the select is dates only, so `kind` (sick
+ * is health), `note`, `id` and the creator never leave the database on that
+ * path. va_key is required — this never lists everyone.
+ */
+const TOF_RANGE_COLS = "va_key,start_day,end_day,deleted_at";
+async function listTimeOffRange({ va_key, from, to } = {}, opts = {}) {
+  if (!va_key) throw new Error("_calendar-db: listTimeOffRange needs a va_key");
+  if (!DATE_RE.test(String(from || "")) || !DATE_RE.test(String(to || ""))) throw new Error("_calendar-db: listTimeOffRange needs from/to as YYYY-MM-DD");
+  const q = `${TOF}?select=${TOF_RANGE_COLS}&deleted_at=is.null&va_key=eq.${encodeURIComponent(va_key)}&end_day=gte.${from}&start_day=lte.${to}&order=start_day.asc`;
+  const rows = await rest(q, {}, opts);
+  return Array.isArray(rows) ? rows : [];
+}
 async function addTimeOff({ va_key, start_day, end_day, kind, note, created_by_admin_id, created_by_admin_email }, opts = {}) {
   const rows = await rest(TOF, { method: "POST", headers: { Prefer: "return=representation" }, body: { va_key, start_day, end_day, kind, note: note || null, created_by_admin_id, created_by_admin_email } }, opts);
   return Array.isArray(rows) && rows.length ? rows[0] : null;
@@ -159,5 +174,5 @@ async function removeTimeOff(id, by, opts = {}) {
 module.exports = {
   VACATION_DAYS_PER_YEAR, FIRST_YEAR_LATE_START_DAYS, ELIGIBLE_AFTER_DAYS, HOLIDAYS_SUBTRACT, REGIONS, KINDS, DATE_RE,
   config, rest, countedDays, summarizeYear, allowanceFor, eligibleFrom, startDates,
-  listHolidays, addHoliday, removeHoliday, listTimeOff, addTimeOff, removeTimeOff,
+  listHolidays, addHoliday, removeHoliday, listTimeOff, listTimeOffRange, addTimeOff, removeTimeOff,
 };

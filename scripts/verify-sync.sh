@@ -42,6 +42,7 @@ check netlify/functions/_clients-db.js
 check netlify/functions/client-login.js
 check netlify/functions/_calendar-db.js
 check netlify/functions/va-calendar-read.js
+check netlify/functions/client-availability.js
 check netlify/functions/_documents-db.js
 check netlify/functions/documents-portal.js
 check netlify/functions/document-view-close.js
@@ -60,6 +61,7 @@ check tests/va-profile-read.test.js
 check tests/profile-api-endpoints.test.js
 check tests/client-login.test.js
 check tests/va-calendar-read.test.js
+check tests/client-availability.test.js
 check tests/documents-portal.test.js
 check tests/va-credential-check.test.js
 check supabase/migrations/20260824170000_va_profiles.sql
