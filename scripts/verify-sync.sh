@@ -62,6 +62,7 @@ check tests/client-login.test.js
 check tests/va-calendar-read.test.js
 check tests/documents-portal.test.js
 check tests/va-credential-check.test.js
+check tests/va-session-live.test.js
 check supabase/migrations/20260824170000_va_profiles.sql
 check supabase/migrations/20260924090000_events.sql
 check supabase/migrations/20260924100000_acknowledgments.sql
