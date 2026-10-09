@@ -140,4 +140,22 @@ async function setPassword({ vaKey, passcode, newPassword }, opts = {}, nowMs = 
   return { ok: true };
 }
 
-module.exports = { login, setPassword, getCredentials, recordEvent, passwordProblem, canonPasscode, MAX_FAILED, LOCK_MINUTES, PASSWORD_MIN, PASSWORD_MAX };
+/**
+ * sessionLive({ vaKey, iat }) -> boolean   (docs/stories/session-bound-to-credentials.md)
+ * A gate session is live only while the VA still has a credentials row AND the
+ * session was issued (iat, whole seconds) at or after that row's created_at.
+ * Wiping the rows (the pre-launch clean) or re-creating one ends every session
+ * minted before it, with no secret rotation. A missing or malformed iat is a
+ * dead session: tokens that predate the claim are treated as expired. Reads
+ * created_at ONLY: never a hash, never the row.
+ */
+async function sessionLive({ vaKey, iat }, opts = {}) {
+  if (!Number.isInteger(iat) || iat <= 0 || iat > 1e11) return false;
+  const rows = await rest(`${TABLE}?select=created_at&va_key=eq.${encodeURIComponent(vaKey)}&limit=1`, {}, opts);
+  const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+  const created = row ? Date.parse(row.created_at) : NaN;
+  if (!Number.isFinite(created)) return false;
+  return iat >= Math.floor(created / 1000);
+}
+
+module.exports = { login, setPassword, sessionLive, getCredentials, recordEvent, passwordProblem, canonPasscode, MAX_FAILED, LOCK_MINUTES, PASSWORD_MIN, PASSWORD_MAX };

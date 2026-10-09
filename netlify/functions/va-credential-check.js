@@ -5,6 +5,10 @@
  * POST  Authorization: Bearer <profile SSO token WITH purpose:"credentials">
  *   { action:"login",        secret }                 -> 200 { ok:true, state:"none"|"password"|"passcode" } | 401 { ok:false }
  *   { action:"set_password", passcode, new_password } -> 200 { ok:true } | 401 { ok:false } | 400 { ok:false, reason:"weak" }
+ *   { action:"session",      iat }                    -> 200 { ok:true, live:true|false }
+ *        (docs/stories/session-bound-to-credentials.md) is the gate session issued at
+ *        `iat` still live? false = no credentials row, or a session older than the
+ *        row. Only the boolean leaves this function, never the row or its date.
  *   anything else                                      -> 400
  *   DB unreachable                                     -> 502 generic
  *
@@ -36,6 +40,10 @@ exports.handler = async (event, _ctx, deps = {}) => {
       if (r.ok) return json(200, { ok: true }, o.origin, FN);
       if (r.reason === "weak") return json(400, { ok: false, reason: "weak" }, o.origin, FN);
       return json(401, { ok: false }, o.origin, FN);
+    }
+    if (body.action === "session") {
+      const live = await creds.sessionLive({ vaKey: o.va_key, iat: body.iat }, dbOpts);
+      return json(200, { ok: true, live: live === true }, o.origin, FN);
     }
     return json(400, { ok: false, error: "Bad request." }, o.origin, FN);
   } catch (e) {
